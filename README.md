@@ -1,27 +1,29 @@
 # Yelp input plugin for Embulk
 
-TODO: Write short description here and build.gradle file.
+Search for Yelp businesses with the [API v3](https://www.yelp.com/developers/documentation/v3/business_search).
 
 ## Overview
 
 * **Plugin type**: input
-* **Resume supported**: yes
-* **Cleanup supported**: yes
+* **Resume supported**: no
+* **Cleanup supported**: no
 * **Guess supported**: no
 
 ## Configuration
 
-- **option1**: description (integer, required)
-- **option2**: description (string, default: `"myvalue"`)
-- **option3**: description (string, default: `null`)
+- **access_token**: Yelp OAuth2 access token (string, required)
+- **location**: Location (string, required)
+- **maximum_retries**: Maximum number of retries (integer, default: 7)
+- **initial_retry_interval_millis**: Initial interval between retries in milliseconds (integer, default: 1000)
+- **maximum_retry_interval_millis**: Maximum interval between retries in milliseconds (integer, default: 60000)
 
 ## Example
 
 ```yaml
 in:
   type: yelp
-  option1: example1
-  option2: example2
+  access_token: ********
+  location: Kyoto
 ```
 
 
