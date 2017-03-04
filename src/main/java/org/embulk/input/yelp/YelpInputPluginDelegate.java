@@ -80,7 +80,7 @@ public class YelpInputPluginDelegate
             .add("name", Types.STRING)
             .add("url", Types.STRING)
             .add(new JacksonJsonPointerValueLocator("/coordinates/latitude"), "latitude", Types.STRING)
-            .add(new JacksonJsonPointerValueLocator("/coordinates/latitude"), "longitude", Types.STRING)
+            .add(new JacksonJsonPointerValueLocator("/coordinates/longitude"), "longitude", Types.STRING)
             .add("image_url", Types.STRING)
             .add(new JacksonJsonPointerValueLocator("/location/city"), "location_city", Types.STRING)
             .add(new JacksonJsonPointerValueLocator("/location/country"), "location_country", Types.STRING)
