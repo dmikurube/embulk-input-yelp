@@ -62,6 +62,10 @@ public class YelpInputPluginDelegate
         @ConfigDefault("null")
         public Optional<String> getLongitude();
 
+        @Config("radius")
+        @ConfigDefault("null")
+        public Optional<Integer> getRadius();
+
         @Config("maximum_retries")
         @ConfigDefault("7")
         public int getMaximumRetries();
@@ -144,6 +148,7 @@ public class YelpInputPluginDelegate
                                         task.getLocation(),
                                         task.getLatitude(),
                                         task.getLongitude(),
+                                        task.getRadius(),
                                         limit,
                                         offset);
             }
@@ -195,6 +200,7 @@ public class YelpInputPluginDelegate
                                  final Optional<String> location,
                                  final Optional<String> latitude,
                                  final Optional<String> longitude,
+                                 final Optional<Integer> radius,
                                  final int limit,
                                  final int offset)
     {
@@ -216,6 +222,9 @@ public class YelpInputPluginDelegate
                     } else {
                         throw new ConfigException(
                             "FATAL: 'location' or 'latitude'/'longitude' are required.");
+                    }
+                    if (radius.isPresent()) {
+                        webTarget = webTarget.queryParam("radius", radius.get());
                     }
                     Response response = webTarget
                         .request()
