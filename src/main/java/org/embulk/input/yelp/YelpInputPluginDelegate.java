@@ -4,16 +4,19 @@ import java.util.List;
 import java.util.Locale;
 
 import javax.ws.rs.core.Response;
+import javax.ws.rs.client.WebTarget;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.Ordering;
 
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigDiff;
+import org.embulk.config.ConfigException;
 import org.embulk.config.TaskReport;
 import org.embulk.spi.DataException;
 import org.embulk.spi.Exec;
@@ -21,16 +24,20 @@ import org.embulk.spi.PageBuilder;
 import org.embulk.spi.Schema;
 import org.embulk.spi.type.Types;
 
+import org.embulk.base.restclient.DefaultServiceDataSplitter;
 import org.embulk.base.restclient.RestClientInputPluginDelegate;
 import org.embulk.base.restclient.RestClientInputTaskBase;
+import org.embulk.base.restclient.ServiceDataSplitter;
 import org.embulk.base.restclient.jackson.JacksonJsonPointerValueLocator;
 import org.embulk.base.restclient.jackson.JacksonServiceRecord;
 import org.embulk.base.restclient.jackson.JacksonServiceResponseMapper;
 import org.embulk.base.restclient.jackson.StringJsonParser;
 import org.embulk.base.restclient.record.RecordImporter;
-import org.embulk.base.restclient.request.RetryHelper;
-import org.embulk.base.restclient.request.SingleRequester;
-import org.embulk.base.restclient.request.StringResponseEntityReader;
+
+import org.embulk.util.retryhelper.jaxrs.JAXRSClientCreator;
+import org.embulk.util.retryhelper.jaxrs.JAXRSRetryHelper;
+import org.embulk.util.retryhelper.jaxrs.JAXRSSingleRequester;
+import org.embulk.util.retryhelper.jaxrs.StringJAXRSResponseEntityReader;
 
 import org.slf4j.Logger;
 
@@ -44,7 +51,16 @@ public class YelpInputPluginDelegate
         public String getAccessToken();
 
         @Config("location")
-        public String getLocation();
+        @ConfigDefault("null")
+        public Optional<String> getLocation();
+
+        @Config("latitude")
+        @ConfigDefault("null")
+        public Optional<String> getLatitude();
+
+        @Config("longitude")
+        @ConfigDefault("null")
+        public Optional<String> getLongitude();
 
         @Config("maximum_retries")
         @ConfigDefault("7")
@@ -61,9 +77,19 @@ public class YelpInputPluginDelegate
 
     private final StringJsonParser jsonParser = new StringJsonParser();
 
-    @Override  // Overridden from |TaskValidatable|
-    public void validateTask(PluginTask task)
+    @Override  // Overridden from |InputTaskValidatable|
+    public void validateInputTask(PluginTask task)
     {
+        if (!task.getLocation().isPresent() &&
+            !(task.getLatitude().isPresent() && task.getLongitude().isPresent())) {
+            throw new ConfigException("'location' or 'latitude'/'longitude' are required.");
+        }
+    }
+
+    @Override  // Overridden from |InputTaskValidatable|
+    public ServiceDataSplitter buildServiceDataSplitter(PluginTask task)
+    {
+        return new DefaultServiceDataSplitter();
     }
 
     @Override  // Overridden from |ServiceResponseMapperBuildable|
@@ -95,7 +121,6 @@ public class YelpInputPluginDelegate
 
     @Override  // Overridden from |ServiceDataIngestable|
     public TaskReport ingestServiceData(final PluginTask task,
-                                        RetryHelper retryHelper,
                                         RecordImporter recordImporter,
                                         int taskIndex,
                                         PageBuilder pageBuilder)
@@ -103,11 +128,25 @@ public class YelpInputPluginDelegate
         TaskReport report = Exec.newTaskReport();
         for (int offset = 0; offset < 1000; ) {
             final int limit = Exec.isPreview() ? 5 : (Ordering.natural().min(50, 1000 - offset));
-            String content = fetchFromYelp(retryHelper,
-                                           task.getAccessToken(),
-                                           task.getLocation(),
-                                           limit,
-                                           offset);
+            final String content;
+            try (JAXRSRetryHelper retryHelper = new JAXRSRetryHelper(
+                     task.getMaximumRetries(),
+                     task.getInitialRetryIntervalMillis(),
+                     task.getMaximumRetryIntervalMillis(),
+                     new JAXRSClientCreator() {
+                         @Override
+                         public javax.ws.rs.client.Client create() {
+                             return javax.ws.rs.client.ClientBuilder.newBuilder().build();
+                         }
+                     })) {
+                content = fetchFromYelp(retryHelper,
+                                        task.getAccessToken(),
+                                        task.getLocation(),
+                                        task.getLatitude(),
+                                        task.getLongitude(),
+                                        limit,
+                                        offset);
+            }
             ArrayNode records = extractArrayField(content);
 
             for (JsonNode record : records) {
@@ -151,23 +190,34 @@ public class YelpInputPluginDelegate
         }
     }
 
-    private String fetchFromYelp(RetryHelper retryHelper,
+    private String fetchFromYelp(JAXRSRetryHelper retryHelper,
                                  final String bearerToken,
-                                 final String location,
+                                 final Optional<String> location,
+                                 final Optional<String> latitude,
+                                 final Optional<String> longitude,
                                  final int limit,
                                  final int offset)
     {
         return retryHelper.requestWithRetry(
-            new StringResponseEntityReader(),
-            new SingleRequester() {
+            new StringJAXRSResponseEntityReader(),
+            new JAXRSSingleRequester() {
                 @Override
                 public Response requestOnce(javax.ws.rs.client.Client client)
                 {
-                    Response response = client
+                    WebTarget webTarget = client
                         .target("https://api.yelp.com/v3/businesses/search")
-                        .queryParam("location", location)
                         .queryParam("limit", String.valueOf(limit))
-                        .queryParam("offset", String.valueOf(offset))
+                        .queryParam("offset", String.valueOf(offset));
+                    if (location.isPresent()) {
+                        webTarget = webTarget.queryParam("location", location.get());
+                    } else if (latitude.isPresent() && longitude.isPresent()) {
+                        webTarget = webTarget.queryParam("latitude", latitude.get())
+                                             .queryParam("longitude", longitude.get());
+                    } else {
+                        throw new ConfigException(
+                            "FATAL: 'location' or 'latitude'/'longitude' are required.");
+                    }
+                    Response response = webTarget
                         .request()
                         .header("Authorization", "Bearer " + bearerToken)
                         .get();
@@ -184,31 +234,6 @@ public class YelpInputPluginDelegate
                     return status / 100 != 4;  // Retry unless 4xx except for 429.
                 }
             });
-    }
-
-    @Override  // Overridden from |ClientCreatable|
-    public javax.ws.rs.client.Client createClient(PluginTask task)
-    {
-        // TODO(dmikurube): Configure org.glassfish.jersey.client.ClientProperties.CONNECT_TIMEOUT and READ_TIMEOUT.
-        return javax.ws.rs.client.ClientBuilder.newBuilder().build();
-    }
-
-    @Override  // Overridden from |RetryConfigurable|
-    public int configureMaximumRetries(PluginTask task)
-    {
-        return task.getMaximumRetries();
-    }
-
-    @Override  // Overridden from |RetryConfigurable|
-    public int configureInitialRetryIntervalMillis(PluginTask task)
-    {
-        return task.getInitialRetryIntervalMillis();
-    }
-
-    @Override  // Overridden from |RetryConfigurable|
-    public int configureMaximumRetryIntervalMillis(PluginTask task)
-    {
-        return task.getMaximumRetryIntervalMillis();
     }
 
     private final Logger logger = Exec.getLogger(YelpInputPluginDelegate.class);
