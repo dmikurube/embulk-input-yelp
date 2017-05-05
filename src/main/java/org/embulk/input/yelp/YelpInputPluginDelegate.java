@@ -1,7 +1,9 @@
 package org.embulk.input.yelp;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 import javax.ws.rs.core.Response;
 import javax.ws.rs.client.WebTarget;
@@ -11,6 +13,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Ordering;
 
 import org.embulk.config.Config;
@@ -31,6 +34,7 @@ import org.embulk.base.restclient.ServiceDataSplitter;
 import org.embulk.base.restclient.jackson.JacksonJsonPointerValueLocator;
 import org.embulk.base.restclient.jackson.JacksonServiceRecord;
 import org.embulk.base.restclient.jackson.JacksonServiceResponseMapper;
+import org.embulk.base.restclient.jackson.JacksonTopLevelValueLocator;
 import org.embulk.base.restclient.jackson.StringJsonParser;
 import org.embulk.base.restclient.record.RecordImporter;
 
@@ -66,6 +70,10 @@ public class YelpInputPluginDelegate
         @ConfigDefault("null")
         public Optional<Integer> getRadius();
 
+        @Config("columns")
+        @ConfigDefault("{}")
+        public Map<String, String> getColumns();
+
         @Config("maximum_retries")
         @ConfigDefault("7")
         public int getMaximumRetries();
@@ -99,21 +107,38 @@ public class YelpInputPluginDelegate
     @Override  // Overridden from |ServiceResponseMapperBuildable|
     public JacksonServiceResponseMapper buildServiceResponseMapper(PluginTask task)
     {
+        HashMap<String, String> columnMap = new HashMap<String, String>();
+        for (String defaultColumn : DEFAULT_COLUMNS) {
+            if (task.getColumns().containsKey(defaultColumn)) {
+                columnMap.put(defaultColumn, task.getColumns().get(defaultColumn));
+            }
+            else {
+                columnMap.put(defaultColumn, defaultColumn);
+            }
+        }
         return JacksonServiceResponseMapper.builder()
-            .add("rating", Types.LONG)
-            .add("price", Types.STRING)
-            .add("phone", Types.STRING)
-            .add("id", Types.STRING)
-            .add("is_closed", Types.BOOLEAN)
-            .add("categories", Types.JSON)
-            .add("review_count", Types.LONG)
-            .add("name", Types.STRING)
-            .add("url", Types.STRING)
-            .add(new JacksonJsonPointerValueLocator("/coordinates/latitude"), "latitude", Types.STRING)
-            .add(new JacksonJsonPointerValueLocator("/coordinates/longitude"), "longitude", Types.STRING)
-            .add("image_url", Types.STRING)
-            .add(new JacksonJsonPointerValueLocator("/location/city"), "location_city", Types.STRING)
-            .add(new JacksonJsonPointerValueLocator("/location/country"), "location_country", Types.STRING)
+            .add(new JacksonTopLevelValueLocator("rating"), columnMap.get("rating"), Types.LONG)
+            .add(new JacksonTopLevelValueLocator("price"), columnMap.get("price"), Types.STRING)
+            .add(new JacksonTopLevelValueLocator("phone"), columnMap.get("phone"), Types.STRING)
+            .add(new JacksonTopLevelValueLocator("id"), columnMap.get("id"), Types.STRING)
+            .add(new JacksonTopLevelValueLocator("is_closed"), columnMap.get("is_closed"), Types.BOOLEAN)
+            .add(new JacksonTopLevelValueLocator("categories"), columnMap.get("categories"), Types.JSON)
+            .add(new JacksonTopLevelValueLocator("review_count"), columnMap.get("review_count"), Types.LONG)
+            .add(new JacksonTopLevelValueLocator("name"), columnMap.get("name"), Types.STRING)
+            .add(new JacksonTopLevelValueLocator("url"), columnMap.get("url"), Types.STRING)
+            .add(new JacksonJsonPointerValueLocator("/coordinates/latitude"),
+                 columnMap.get("latitude"),
+                 Types.STRING)
+            .add(new JacksonJsonPointerValueLocator("/coordinates/longitude"),
+                 columnMap.get("longitude"),
+                 Types.STRING)
+            .add(new JacksonTopLevelValueLocator("image_url"), columnMap.get("image_url"), Types.STRING)
+            .add(new JacksonJsonPointerValueLocator("/location/city"),
+                 columnMap.get("location_city"),
+                 Types.STRING)
+            .add(new JacksonJsonPointerValueLocator("/location/country"),
+                 columnMap.get("location_country"),
+                 Types.STRING)
             .build();
     }
 
@@ -244,6 +269,23 @@ public class YelpInputPluginDelegate
                 }
             });
     }
+
+    private static final String[] DEFAULT_COLUMNS = {
+        "rating",
+        "price",
+        "phone",
+        "id",
+        "is_closed",
+        "categories",
+        "review_count",
+        "name",
+        "url",
+        "latitude",
+        "longitude",
+        "image_url",
+        "location_city",
+        "location_country"
+    };
 
     private final Logger logger = Exec.getLogger(YelpInputPluginDelegate.class);
 }
