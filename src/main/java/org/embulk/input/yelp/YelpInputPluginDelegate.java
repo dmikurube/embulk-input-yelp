@@ -72,6 +72,10 @@ public class YelpInputPluginDelegate
         @ConfigDefault("null")
         public Optional<Integer> getRadius();
 
+        @Config("locale")
+        @ConfigDefault("null")
+        public Optional<String> getLocale();
+
         @Config("columns")
         @ConfigDefault("{}")
         public Map<String, String> getColumns();
@@ -164,6 +168,7 @@ public class YelpInputPluginDelegate
                                         task.getLatitude(),
                                         task.getLongitude(),
                                         task.getRadius(),
+                                        task.getLocale(),
                                         limit,
                                         offset);
             }
@@ -266,6 +271,7 @@ public class YelpInputPluginDelegate
                                  final Optional<String> latitude,
                                  final Optional<String> longitude,
                                  final Optional<Integer> radius,
+                                 final Optional<String> locale,
                                  final int limit,
                                  final int offset)
     {
@@ -290,6 +296,9 @@ public class YelpInputPluginDelegate
                     }
                     if (radius.isPresent()) {
                         webTarget = webTarget.queryParam("radius", radius.get());
+                    }
+                    if (locale.isPresent()) {
+                        webTarget = webTarget.queryParam("locale", locale.get());
                     }
                     Response response = webTarget
                         .request()
