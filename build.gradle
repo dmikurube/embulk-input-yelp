@@ -16,7 +16,7 @@ repositories {
     }
 }
 
-group = "org.tsuque"
+group = "io.github.dmikurube"
 version = "0.2.5"
 description = "Loads records from Yelp."
 
