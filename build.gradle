@@ -1,10 +1,12 @@
 plugins {
-    id "com.jfrog.bintray" version "1.1"
-    id "com.github.jruby-gradle.base" version "0.1.5"
     id "java"
     id "checkstyle"
+    id "maven"
+    id "com.github.jruby-gradle.base" version "1.7.0"
+    id "org.embulk.embulk-plugins" version "0.2.3"
+    id "com.jfrog.bintray" version "1.1"
 }
-import com.github.jrubygradle.JRubyExec
+
 repositories {
     mavenCentral()
     jcenter()
@@ -13,30 +15,41 @@ repositories {
         url "http://dl.bintray.com/embulk-base-restclient/maven"
     }
 }
-configurations {
-    provided
-}
 
-version = "0.2.4"
+group = "org.tsuque"
+version = "0.2.5"
+description = "Loads records from Yelp."
 
-sourceCompatibility = 1.7
-targetCompatibility = 1.7
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 dependencies {
-    compile  "org.embulk:embulk-core:0.8.17"
-    provided "org.embulk:embulk-core:0.8.17"
-    compile  "org.embulk.base.restclient:embulk-base-restclient:0.5.0"
-    compile  "org.embulk.base.restclient:embulk-util-retryhelper-jaxrs:0.5.0"
-    compile  "org.glassfish.jersey.core:jersey-client:2.25.1"
+    compileOnly "org.embulk:embulk-core:0.9.17"
+    compile("org.embulk.base.restclient:embulk-base-restclient:0.5.0") {
+        exclude group: "org.embulk", module: "embulk-core"
+    }
+    compile("org.embulk.base.restclient:embulk-util-retryhelper-jaxrs:0.5.0") {
+        exclude group: "org.embulk", module: "embulk-core"
+    }
+    compile("org.glassfish.jersey.core:jersey-client:2.25.1") {
+        exclude group: "javax.inject", module: "javax.inject"
+    }
     testCompile "junit:junit:4.+"
 }
 
-task classpath(type: Copy, dependsOn: ["jar"]) {
-    doFirst { file("classpath").deleteDir() }
-    from (configurations.runtime - configurations.provided + files(jar.archivePath))
-    into "classpath"
+embulkPlugin {
+    mainClass = "org.embulk.input.yelp.YelpInputPlugin"
+    category = "input"
+    type = "yelp"
 }
-clean { delete "classpath" }
+
+gem {
+    authors = [ "Dai MIKURUBE" ]
+    email = [ "dmikurube@acm.org" ]
+    summary = "Yelp input plugin for Embulk"
+    homepage = "https://github.com/dmikurube/embulk-input-yelp"
+    licenses = [ "MIT" ]
+}
 
 checkstyle {
     configFile = file("${project.rootDir}/config/checkstyle/checkstyle.xml")
@@ -54,49 +67,3 @@ task checkstyle(type: Checkstyle) {
     classpath = sourceSets.main.output + sourceSets.test.output
     source = sourceSets.main.allJava + sourceSets.test.allJava
 }
-
-task gem(type: JRubyExec, dependsOn: ["gemspec", "classpath"]) {
-    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "build"
-    script "${project.name}.gemspec"
-    doLast { ant.move(file: "${project.name}-${project.version}.gem", todir: "pkg") }
-}
-
-task gemPush(type: JRubyExec, dependsOn: ["gem"]) {
-    jrubyArgs "-rrubygems/gem_runner", "-eGem::GemRunner.new.run(ARGV)", "push"
-    script "pkg/${project.name}-${project.version}.gem"
-}
-
-task "package"(dependsOn: ["gemspec", "classpath"]) {
-    doLast {
-        println "> Build succeeded."
-        println "> You can run embulk with '-L ${file(".").absolutePath}' argument."
-    }
-}
-
-task gemspec {
-    ext.gemspecFile = file("${project.name}.gemspec")
-    inputs.file "build.gradle"
-    outputs.file gemspecFile
-    doLast { gemspecFile.write($/
-Gem::Specification.new do |spec|
-  spec.name          = "${project.name}"
-  spec.version       = "${project.version}"
-  spec.authors       = ["Dai MIKURUBE"]
-  spec.summary       = %[Yelp input plugin for Embulk]
-  spec.description   = %[Loads records from Yelp.]
-  spec.email         = ["dmikurube@acm.org"]
-  spec.licenses      = ["MIT"]
-  spec.homepage      = "https://github.com/dmikurube/embulk-input-yelp"
-
-  spec.files         = `git ls-files`.split("\n") + Dir["classpath/*.jar"]
-  spec.test_files    = spec.files.grep(%r"^(test|spec)/")
-  spec.require_paths = ["lib"]
-
-  #spec.add_dependency 'YOUR_GEM_DEPENDENCY', ['~> YOUR_GEM_DEPENDENCY_VERSION']
-  spec.add_development_dependency 'bundler', ['~> 1.0']
-  spec.add_development_dependency 'rake', ['>= 10.0']
-end
-/$)
-    }
-}
-clean { delete "${project.name}.gemspec" }
